@@ -13,9 +13,10 @@ from pathlib import Path
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from faithaal.data import LABELS, load_recordings  # noqa: E402
+from faithaal.data import load_recordings  # noqa: E402
+from faithaal.data_home import load_home  # noqa: E402
 from faithaal.llm import Client  # noqa: E402
-from faithaal.prompts import MAX_EVIDENCE, build_messages  # noqa: E402
+from faithaal.prompts import MAX_EVIDENCE, TASKS, build_messages  # noqa: E402
 from faithaal.protocol import run_protocol  # noqa: E402
 
 MODELS = [
@@ -40,7 +41,7 @@ def stratified_subset(recs, n):
     return out
 
 
-def parse(text: str, n_events: int):
+def parse(text: str, n_events: int, labels):
     """Return (label or None, cited 0-based indices, parsed_ok)."""
     m = re.search(r"\{.*\}", text, flags=re.S)
     if not m:
@@ -50,7 +51,7 @@ def parse(text: str, n_events: int):
     except json.JSONDecodeError:
         return None, [], False
     act = str(d.get("activity", "")).strip().lower()
-    label = act if act in LABELS else None
+    label = act if act in labels else None
     cited = []
     ev = d.get("evidence", [])
     if isinstance(ev, list):
@@ -73,11 +74,13 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--workers", type=int, default=12)
     ap.add_argument("--tag", default="run")
+    ap.add_argument("--task", default="adl", choices=list(TASKS))
     a = ap.parse_args()
 
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    recs = load_recordings(a.data)
+    task = TASKS[a.task]
+    recs = load_recordings(a.data) if a.task == "adl" else load_home(a.data)
     if a.limit:
         recs = stratified_subset(recs, a.limit)
     client = Client(str(out / f"cache_{a.tag}.sqlite"))
@@ -85,14 +88,14 @@ def main():
 
     def make_ask(model, variant):
         def ask(rec, events, nonce):
-            r = client.chat(model, build_messages(events, variant, nonce))
-            label, cited, ok = parse(r["text"], len(events))
+            r = client.chat(model, build_messages(events, variant, nonce, task))
+            label, cited, ok = parse(r["text"], len(events), task.labels)
             return {"label": label, "cited": cited, "parsed": ok, "text": r["text"], "error": r.get("error")}
         return ask
 
     for model in a.models.split(","):
         for variant in a.variants.split(","):
-            rows += run_protocol(recs, make_ask(model, variant), {"model": model, "variant": variant}, a.workers)
+            rows += run_protocol(recs, make_ask(model, variant), {"model": model, "variant": variant, "task": a.task}, a.workers)
             print(f"{model}/{variant}: done, running cost ${client.cost:.3f}", flush=True)
             with open(out / f"records_{a.tag}.jsonl", "w") as fh:
                 for row in rows:

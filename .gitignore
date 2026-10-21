@@ -229,3 +229,5 @@ results/cache*.sqlite
 __pycache__/
 .pytest_cache/
 results/llm/cache_*.sqlite
+results/home/cache_*.sqlite
+results/explain/cache_*.sqlite
