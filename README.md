@@ -41,3 +41,13 @@ python run_pilot.py --data ../../data/adl_noerror --out ../../results/llm --mode
 python analyze.py --records ../../results/llm/records_*.jsonl --out ../../results --prefix summary
 python make_artifacts.py
 ```
+
+## Additional experiments
+
+- Free-living segments (`data/home_segments.jsonl`, sampled from the CASAS labelled long-term data, CC BY 4.0, Zenodo record 15708568):
+  `python code/scripts/build_home_dataset.py --raw <extracted labeled/ dir> --out data/home_segments.jsonl`, then
+  `run_pilot.py --task home ...`; results in `results/home/` and `results/home_summary.csv`.
+- Explain-only (a classifier decides, a language model explains): `run_explain.py` stores the cited events in
+  `results/explain/`; `analyze_explain.py --task adl|home ...` scores them against the classifier and assigns ladder
+  levels (`results/explain_summary_*.csv`). `make_artifacts2.py` builds the chapter tables and figure.
+- The free Laguna model stalled on rate limits in both experiments and is excluded.
