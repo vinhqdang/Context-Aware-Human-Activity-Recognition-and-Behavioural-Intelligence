@@ -17,8 +17,17 @@ from faithaal.ladder import LEVELS, authority  # noqa: E402
 
 res, tab, fig = ROOT / "results", ROOT / "chapter" / "tables", ROOT / "chapter" / "figures"
 ref = pd.read_csv(res / "reference.csv")
+MIN_N = 15  # configurations with fewer recordings that returned an answer are not reported
 llm = pd.read_csv(res / "summary.csv") if (res / "summary.csv").exists() else None
+if llm is not None:
+    llm = llm[llm.n >= MIN_N].sort_values(["n", "model", "variant"], ascending=[False, True, True]).reset_index(drop=True)
 recs = load_recordings(ROOT / "data" / "adl_noerror")
+
+def short(m):
+    name = m.split(":", 1)[1]
+    free = name.endswith(":free")
+    return name.removesuffix(":free").split("/")[-1] + (" (free)" if free else "")
+
 
 def ci(r, k, d=2):
     return f"{r[k]:.{d}f} [{r[k + '_lo']:.{d}f}, {r[k + '_hi']:.{d}f}]"
@@ -76,8 +85,23 @@ if llm is not None:
         fh.write("\\begin{tabular}{llrccccc}\n\\toprule\nModel & Prompt & $n$ & Accuracy [95\\% CI] & $F$ [95\\% CI] & $S$ & Noise & Level \\\\\n\\midrule\n")
         for _, r in llm.iterrows():
             lv = authority(r.accuracy_lo, r.F_lo, r.noise, r.parse_rate, f_ref)
-            fh.write(f"{r.model.split(':')[-1].split('/')[-1].replace('_', '\\\\_')} & {r.variant} & {int(r.n)} & {ci(r, 'accuracy')} & {ci(r, 'F')} & {r.S:.2f} & {r.noise:.2f} & {lv} \\\\\n")
+            fh.write(f"{short(r.model)} & {r.variant} & {int(r.n)} & {ci(r, 'accuracy')} & {ci(r, 'F')} & {r.S:.2f} & {r.noise:.2f} & {lv} \\\\\n")
         fh.write("\\bottomrule\n\\end{tabular}\n")
+    lv = {}
+    for _, r in llm.iterrows():
+        lv[(r.model, r.variant)] = authority(r.accuracy_lo, r.F_lo if r.F_lo == r.F_lo else 0.0, r.noise, r.parse_rate, f_ref)
+    tags = {("openrouter:openai/gpt-6-luna", "Luna"), ("openrouter:deepseek/deepseek-v4.1-flash-1017", "Deep")}
+    with open(tab / "llm_numbers.tex", "w") as fh:
+        fh.write(f"\\newcommand{{\\NLlmConfigs}}{{{len(llm)}}}\n\\newcommand{{\\MaxLevel}}{{{max(lv.values())}}}\n")
+        fh.write(f"\\newcommand{{\\AccMaxLo}}{{{llm.accuracy_lo.max():.2f}}}\n")
+        rho = llm[["accuracy", "F"]].corr(method="spearman").iloc[0, 1]
+        fh.write(f"\\newcommand{{\\SpearmanAccF}}{{{rho:.2f}}}\n")
+        for mid, tag in tags:
+            for v, vt in (("enriched", "Enr"), ("plain", "Pl")):
+                r = llm[(llm.model == mid) & (llm.variant == v)].iloc[0]
+                for k, nm in (("accuracy", "Acc"), ("F", "F"), ("F_lo", "FLo"), ("F_hi", "FHi"), ("noise", "Noise"), ("S", "S")):
+                    val = f"{100 * r[k]:.1f}" if k == "accuracy" else f"{r[k]:.3f}" if k.startswith("F") else f"{r[k]:.2f}"
+                    fh.write(f"\\newcommand{{\\{tag}{vt}{nm}}}{{{val}}}\n")
     fig_, ax = plt.subplots(figsize=(3.6, 3.0))
     for v, c in (("plain", "#bdbdbd"), ("enriched", "#1b6ca8")):
         d = llm[llm.variant == v]

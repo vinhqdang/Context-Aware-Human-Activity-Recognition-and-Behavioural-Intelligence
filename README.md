@@ -24,8 +24,20 @@ python make_artifacts.py
 
 ## Status
 
-Done: protocol, reference-agent validation, authority ladder, chapter text.
-Not done: the language-model runs. `run_pilot.py` needs an `OPENROUTER_API_KEY` with budget; after
-`python run_pilot.py --data ../../data/adl_noerror --out ../../results` run
-`python analyze.py --records ../../results/records.jsonl --out ../../results` and `python make_artifacts.py`
-to produce the language-model table and figure. The chapter marks the dependent text as pending.
+Done: protocol, reference-agent validation, authority ladder, language-model pilot, chapter text.
+
+Language-model pilot (`results/llm/records_*.jsonl`, summary in `results/summary.csv`): GPT-6-Luna and
+DeepSeek-V4.1-Flash on all 120 recordings under both prompts; Laguna-S-2.1 on 20 recordings (both prompts);
+gpt-oss-120b, gpt-oss-20b and Qwen3.8-27B on 15 recordings (plain prompt). Runs that produced too few answers
+(Ministral-8B, MiniMax-M3.1-Flash, Nemotron-3-Ultra; Gemini unavailable; Groq enriched prompts stalled on daily
+limits) are not reported; the Mistral records are kept in `results/llm_excluded/`.
+
+To rerun, export the provider keys as `FAITHAAL_OPENROUTER_KEY`, `FAITHAAL_GROQ_KEY`, `FAITHAAL_MISTRAL_KEY`,
+`FAITHAAL_GEMINI_KEY`, then:
+
+```
+cd code/scripts
+python run_pilot.py --data ../../data/adl_noerror --out ../../results/llm --models openrouter:openai/gpt-6-luna --tag luna
+python analyze.py --records ../../results/llm/records_*.jsonl --out ../../results --prefix summary
+python make_artifacts.py
+```
