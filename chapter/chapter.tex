@@ -1,0 +1,194 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs,graphicx,amsmath,amssymb,enumitem,xcolor,array}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[hidelinks]{hyperref}
+\input{tables/numbers.tex}
+
+% Marks text that depends on experiments that have not been run yet.
+\newcommand{\pending}[1]{\par\medskip\noindent\fbox{\parbox{0.94\linewidth}{\small\textbf{Pending.} #1}}\medskip}
+
+\title{When Can an Activity-Recognition Agent Be Trusted to Act?\\
+Counterfactual Faithfulness of LLM Explanations and\\
+Accountability in Ambient Assisted Living}
+\author{Quang-Vinh Dang\\
+\small British University Vietnam, Hung Yen, Vietnam\\
+\small \texttt{vinh.dq4@buv.edu.vn} \quad ORCID 0000-0002-3877-8024}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Large language models (LLMs) are increasingly placed on top of activity recognition systems in smart homes and ambient assisted living (AAL). They label activities, explain their conclusions, and may trigger actions such as alerting a caregiver or requesting emergency assistance. Their explanations are fluent, but fluent explanations can describe correlations that the model never used, so explanation quality becomes a safety question as well as an interpretability one. This chapter asks when such an agent can justifiably be allowed to act. We propose a counterfactual faithfulness protocol: for every explanation that cites sensor events as evidence, we intervene on the cited events (removal, value change, temporal shift) and on a size-matched set of uncited events, and test whether the agent's conclusion moves with the cited evidence and not with the rest. We validate the protocol on CASAS scripted-ADL data using three agents that share one classifier, and so one accuracy, but cite evidence by different rules; the protocol separates them. We then relate measured faithfulness to accountability under the GDPR, the EU AI Act and the Vietnamese regulatory setting, covering the evidentiary weight of a model-generated inference, the consent of monitored older adults, and the allocation of responsibility among developers, deployers and caregivers. We close with a graduated authority ladder that ties measured evidence to permitted actions, from logging to caregiver notification to irreversible actions that always require human confirmation. Sensitivity to input changes is necessary but not sufficient evidence of sound reasoning, and we say what the protocol cannot show.
+\end{abstract}
+
+\section{Introduction: from activity recognition to agents that explain and act}
+
+Activity recognition in the home began as classification: a window of motion, door and item-use events goes in, a label comes out \cite{cook2013casas}. A label is passive. Someone reads it, or nobody does, and the cost of a wrong label is a wrong dashboard entry.
+
+Language models change the role of the recogniser in two ways. First, they are being used as reasoning layers over sensor data, sometimes with no task-specific training, and they can report on a day of sensor events in plain prose \cite{ji2024hargpt,civitarese2024zeroshot}. Second, they are wrapped in agent frameworks that can call tools: send a message, place a call, change a device state. Once the output of the model can cause something to happen to a frail person living alone, the properties we need from it change. Accuracy on a benchmark is no longer enough, because the person who has to decide whether to act on the output, or to trust that the system acted correctly, relies on the explanation that comes with it.
+
+That explanation is the weak point. Language models produce explanations that read well, and several studies show that what they say about their own reasoning need not match what drove their answer. Biasing features in the input change the answer without being mentioned, and stated chain-of-thought steps can be unrelated to the outcome \cite{turpin2023say,lanham2023faithfulness}. Faithfulness, in the sense of an explanation that reflects the process that produced the decision, is a long-standing concern in interpretable NLP \cite{jain2019attention,jacovi2020faithfully}. In a monitoring setting an unfaithful explanation does particular damage. A caregiver who sees ``motion in the kitchen at 03:12, then no motion in the bedroom, so the resident has probably fallen'' will reasonably check the kitchen, whether or not the model's decision depended on those events. If the story was invented after the fact, the caregiver's check is aimed at the wrong evidence, and neither the caregiver nor an auditor can tell.
+
+The question of this chapter follows directly: \emph{when can an activity-recognition agent be trusted to act?} We answer it in two parts. The first is empirical and operational. Section~\ref{sec:protocol} defines a counterfactual faithfulness protocol that can be run on any agent that reads a sensor log and cites events. Section~\ref{sec:pilot} validates it on public data. The second part is normative. Section~\ref{sec:accountability} asks what a measured faithfulness score is worth as evidence in the legal frameworks that govern AAL in the European Union and Vietnam, and Section~\ref{sec:ladder} turns the answer into a graduated authority ladder. Section~\ref{sec:limits} states the limits. The code, data pointers and results are in the accompanying repository.
+
+\paragraph{Contributions.}
+(i) A protocol that scores explanation faithfulness by intervention on the cited events, against a size-matched control on uncited events, with a null control for the agent's own instability. (ii) A validity check showing that the protocol separates agents of identical accuracy. (iii) An analysis connecting the score to the evidentiary, consent and responsibility questions raised by AAL deployments. (iv) An authority ladder that gives the score a decision role without making it the only gate.
+
+\section{Background}
+\label{sec:background}
+
+\subsection{LLM reasoning over ambient and wearable sensing}
+Ambient activity recognition has used hand-crafted features with classical classifiers, then deep sequence models, on datasets such as those from the CASAS testbeds \cite{cook2013casas}. Recent work asks whether general-purpose language models can recognise activities from raw or lightly processed sensor streams with little or no training: HARGPT prompts a model with raw inertial data \cite{ji2024hargpt}, and Civitarese et al.\ evaluate zero-shot recognition of activities of daily living from ambient sensor events, including the use of context such as sensor placement and activity definitions \cite{civitarese2024zeroshot}. The common finding is that language models can be competitive on coarse activities when given context, and that results are sensitive to how the sensor data is described. Our study follows the same setting, because it is where agents are being built, but its target is not accuracy.
+
+\subsection{Failure modes of generated explanations}
+Three failure modes matter for monitoring. \emph{Confabulation}: the explanation names evidence that the decision did not depend on. \emph{Omission}: the decision depends on something the explanation does not mention, such as a prior about the time of day. \emph{Fabrication}: the explanation cites events that are not in the log. The first two are about faithfulness and can be probed only by intervening on the input; reading the explanation cannot reveal them. The third can be checked directly, and our harness records it as an invalid citation.
+
+\subsection{Measuring faithfulness by intervention}
+In text classification, faithfulness is often measured by removing the rationale a model gives and checking how much its confidence falls (\emph{comprehensiveness}), and by keeping only the rationale and checking how much confidence survives (\emph{sufficiency}) \cite{deyoung2020eraser}. Our protocol borrows both ideas and adapts them to sensor logs, where an ``input token'' is a timestamped event with a sensor identity and a reading, and where evidence can be altered in ways that have no text analogue: the reading can change and the event can move in time. Two further additions matter in practice. We compare with a matched control on uncited events, because removing any ten events from a short log can change a conclusion, and a null control, because an agent that flips its answer when nothing relevant changed has a noise floor that must be subtracted from any claim of sensitivity.
+
+\section{A counterfactual faithfulness protocol for sensor-grounded explanations}
+\label{sec:protocol}
+
+\subsection{Setting}
+A \emph{recording} is a time-ordered log $L=(e_1,\dots,e_n)$ of events $e_i=(t_i,s_i,v_i)$, with timestamp, sensor identity and reading. An \emph{agent} maps a log to a triple $(y, C, x)$: a conclusion $y$ from a closed label set, a cited set $C\subseteq\{1,\dots,n\}$ of at most $k$ event indices, and a free-text explanation $x$. We use $k=10$. The protocol uses $y$ and $C$; the text $x$ is retained for audit. A citation outside $\{1,\dots,n\}$ is counted as invalid and dropped.
+
+\subsection{Interventions}
+Let $\pi$ be an operation on a log and a set of positions. We use three families, chosen to cover what an explanation might claim about an event.
+\begin{description}[leftmargin=1.2cm,style=nextline]
+\item[Removal.] $\pi_{\mathrm{rem}}(L,A)$ deletes the events at positions $A$. This tests whether the event is needed.
+\item[Value change.] $\pi_{\mathrm{val}}(L,A)$ replaces each reading by its inverse (ON$\leftrightarrow$OFF, PRESENT$\leftrightarrow$ABSENT, OPEN$\leftrightarrow$CLOSE, START$\leftrightarrow$END) and sets an analogue level, such as water flow or burner level, to zero. Events with no defined inverse are left unchanged. This tests whether the content of the reading matters, not only its existence.
+\item[Temporal shift.] $\pi_{\mathrm{shift}}(L,A)$ moves the events at $A$ later by a fixed offset and re-sorts the log. This tests whether the order and timing that the explanation relies on actually matter.
+\end{description}
+For each family $f$ we form two logs from the same base: $\pi_f(L,C)$ on the cited events, and $\pi_f(L,U)$ where $U$ is a uniformly random subset of the uncited events with $|U|=|C|$. The matched size keeps the amount of change equal, so a difference between the two can be attributed to \emph{which} events were touched.
+
+\subsection{Scores}
+Let $y_0$ be the conclusion on the base log and $y_f^{C}$, $y_f^{U}$ the conclusions after intervening on cited and uncited events. The \emph{conclusion-change indicator} is $\delta(y,y')=\mathbb 1[y\neq y']$. The per-family faithfulness gap and the overall score are
+\begin{equation}
+\Delta_f=\delta(y_0,y_f^{C})-\delta(y_0,y_f^{U}),\qquad F=\frac13\sum_{f\in\{\mathrm{rem},\mathrm{val},\mathrm{shift}\}}\Delta_f,
+\end{equation}
+averaged over recordings with a well-formed answer and at least one valid citation. $F\in[-1,1]$. An explanation is faithful to the degree that $F$ is positive: interventions on cited evidence move the conclusion, interventions on uncited evidence do not. Two companion quantities complete the report.
+\begin{itemize}[nosep]
+\item \textbf{Sufficiency} $S=\Pr[\,y(\pi_{\mathrm{keep}}(L,C))=y_0\,]$, where $\pi_{\mathrm{keep}}$ keeps only the cited events: does the cited evidence alone carry the conclusion?
+\item \textbf{Noise floor} $N=\Pr[\,y(L;\eta)\neq y_0\,]$, where $\eta$ is a content-free change to the request (we add an inert request identifier): how often does the agent contradict itself when nothing relevant changed?
+\end{itemize}
+Intervals are percentile bootstrap intervals over participants, not recordings, because recordings from one person are not independent.
+
+\subsection{What a score does and does not say}
+$F$ is the \emph{necessity} side of faithfulness, measured at the level of conclusions. It will be small for agents whose evidence is redundant, because deleting the ten most important of forty supporting events may leave enough to reach the same conclusion. $F$ therefore has no absolute scale, and Section~\ref{sec:pilot} calibrates it against a reference agent that is faithful by construction on the same data. It is also sensitive to the choice of interventions: a bag-of-events classifier is blind to temporal shift, so $\Delta_{\mathrm{shift}}=0$ for it, correctly. The score tests whether the cited evidence is \emph{used}; it does not test whether the use is \emph{sound}. We return to this in Section~\ref{sec:limits}.
+
+\section{Pilot study on CASAS: accuracy versus faithfulness}
+\label{sec:pilot}
+
+\subsection{Data}
+We use the CASAS scripted-ADL recordings without errors, released under CC~BY~4.0 \cite{casas_zenodo_adl}. Participants perform five tasks in a smart apartment: making a phone call, washing hands, cooking oatmeal, eating (with a medicine container), and cleaning the dishes. There are \NRec{} recordings from \NPart{} participants, each between \NEvMin{} and \NEvMax{} events (median \NEvMed). The sensors are PIR motion sensors, item-use sensors for eight objects, a cabinet door sensor, analogue water-flow and burner sensors, and the telephone. The task number is the label. The scripted setting is cleaner than free living, so the accuracy numbers below are an upper bound on what an agent would reach at home. We chose it for a different reason: the activity labels, the sensor semantics and the layout are documented, which allows a controlled comparison of plain and context-enriched prompting.
+
+\subsection{Validating the protocol with reference agents}
+\label{sec:reference}
+Before using the protocol to judge language models we ask whether it can tell a faithful explanation from an unfaithful one when we know the answer. We train one multinomial logistic-regression classifier on log-counts of (sensor, reading) tokens, with leave-one-participant-out evaluation, and attach three citing rules to it.
+\begin{itemize}[nosep]
+\item \emph{Faithful:} cite the ten events whose tokens contribute most to the decision margin.
+\item \emph{Positional:} cite the first ten events, a plausible story (``the activity began with\dots'') that is independent of the decision.
+\item \emph{Random:} cite ten randomly chosen events.
+\end{itemize}
+All three share the same predictions, so their accuracy is identical, \AccFaith\% across \NRec{} recordings. Table~\ref{tab:ref} and Figure~\ref{fig:ref} give the protocol output.
+
+\begin{table}[t]
+\centering
+\input{tables/reference.tex}
+\caption{Protocol output for three agents with the same classifier and the same accuracy. $F$: faithfulness score; $S$: sufficiency; noise floor: flip rate under a content-free change of the request. Intervals are participant-level bootstrap intervals.}
+\label{tab:ref}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/reference_flip_rates.pdf}
+\caption{Conclusion-change rates after intervening on cited events and on a size-matched set of uncited events, by intervention family and citing rule. The faithful agent's removal gap is \RemFaith; the temporal-shift bars are empty because a bag-of-events classifier ignores order.}
+\label{fig:ref}
+\end{figure}
+
+Three observations. First, accuracy does not predict faithfulness: the three agents are indistinguishable by accuracy and ordered by $F$, \FFaith{} for the faithful rule (95\% CI \FFaithLo{} to \FFaithHi) against \FRand{} for random citation (interval \FRandLo{} to \FRandHi, which contains zero, as it should). Second, the positional rule scores \FPos{} (\FPosLo{} to \FPosHi{}), slightly above zero. That is not a defect of the metric: the first events of a recording are informative in this scripted data, so a story that is independent of the decision by construction still touches some evidence the decision uses. Third, absolute values are low. Even the faithful agent has $F=\FFaith$, because the classifier has many redundant features and the removal gap is \RemFaith{} while the value-change gap is \ValFaith. The score is useful for ordering agents on the same data and for comparison with a calibrated reference; it should not be read as a percentage of faithfulness. The noise floor is zero here because the reference agents are deterministic.
+
+\subsection{Language-model agents under plain and context-enriched prompting}
+\label{sec:llm}
+The study design is fixed in the repository (\texttt{code/scripts/run\_pilot.py}). Five models are queried at temperature zero with optional reasoning modes disabled: two open-weight Llama models of different sizes, one open-weight DeepSeek model, and two proprietary models from different vendors. Each model is run under two prompts. The \emph{plain} prompt gives the raw log (relative time, sensor identifier, reading), the five labels and the output format. The \emph{context-enriched} prompt adds the sensor dictionary (item-use sensors named, analogue sensors explained, rooms identified) and a one-line definition of each activity. Both prompts ask for the label, at most ten cited event indices and a three-sentence explanation. Each recording yields one base query, one null query, one sufficiency query and six intervention queries, about nine queries per recording per configuration. Outputs that cannot be parsed are excluded from the pairs they affect and their rate is reported.
+
+\pending{The language-model runs have not been executed. The protocol, metric and analysis code have been run end to end on the reference agents; the prompt-building and answer-parsing path has not yet been exercised on real model output, and no model access was available when this version was prepared, and no results from language models are reported in it. Running \texttt{run\_pilot.py}, \texttt{analyze.py} and \texttt{make\_artifacts.py} regenerates the language-model results table, the accuracy-versus-faithfulness figure and the authority levels for each model. Any statement in this chapter about how language models score is therefore an expectation to be tested, not a finding.}
+
+The questions the study is built to answer are: whether context enrichment raises accuracy and faithfulness together or only accuracy; whether larger models are more faithful than smaller ones; whether a model that is highly accurate can still score near zero; and whether the null control reveals instability that accuracy hides. The ordering of agents by accuracy and by $F$, and the correlation between the two across the ten configurations, are the pre-specified summaries. With ten configurations, a correlation is descriptive and carries no inferential weight; we will say so when reporting it.
+
+\section{From measured faithfulness to accountability}
+\label{sec:accountability}
+
+This section uses EU and Vietnamese law as a lens on the three questions an AAL deployment raises: what evidential weight a model-generated inference can carry, whether the monitored older adult has consented to it in a meaningful way, and who answers when it is wrong. It is an analysis for researchers and practitioners, not legal advice. The EU material rests on the texts of the instruments cited; the Vietnamese material rests on the titles and effective dates of the instruments and on secondary commentary, and it needs confirmation by local counsel before reliance, in particular because implementing decrees are still being issued.
+
+\subsection{The evidentiary standard a model-generated inference can meet}
+A caregiver or a clinician who acts on an agent's alert is treating the inference as evidence of a state of the world: a fall, a missed medication, a wandering episode. What makes that reasonable is a track record and an account of why this alert was raised. Accuracy statistics supply the first. The second is exactly what an unfaithful explanation destroys, and what a faithfulness score partially supports. An audit can ask: for this alert, did the evidence the agent cited actually drive the conclusion? If $F$ for the system is indistinguishable from zero, then the explanation attached to any single alert carries no information about why it was raised, and it should not be given probative weight in a dispute. If $F$ is clearly positive, the explanation is a better, though still imperfect, guide to what to look at.
+
+Several legal provisions make explanation quality more than a courtesy. Under the GDPR a data subject is entitled to ``meaningful information about the logic involved'' in automated decision-making (Arts.~13(2)(f), 14(2)(g), 15(1)(h)), and the Court of Justice has held that this requires an explanation that allows the person to understand the procedure and principles applied, not the algorithm itself, and that the controller cannot hide behind trade secrets without the explanation being tested by the competent authority or court (Case C-203/22, \emph{Dun \& Bradstreet Austria}) \cite{cjeu_dnb}. An explanation that is fluent but unrelated to the decision cannot satisfy this. The AI Act adds, for high-risk systems, requirements on transparency to deployers (Art.~13), on accuracy and robustness (Art.~15), and a right of an affected person to a clear and meaningful explanation of the role of the system in a decision that has legal or similarly significant effects on health, safety or fundamental rights (Art.~86) \cite{aiact}. A measurement that shows whether the explanation tracks the decision is directly relevant evidence of compliance.
+
+A further point concerns the status of an alert as a ``decision''. The Court of Justice held in Case C-634/21 (\emph{SCHUFA}) that producing a score is itself an automated decision under Art.~22 GDPR when a third party draws strongly on it \cite{cjeu_schufa}. By analogy, an AAL agent whose alerts a caregiver or a care provider habitually follows may be performing automated decision-making in the sense of Art.~22, even if a human formally ``decides''. Where the human in the loop only confirms, the oversight is nominal, and the faithfulness of the explanation is what makes confirmation more than a click.
+
+\subsection{Consent and the monitored older adult}
+AAL systems process health-related data about a person who is often frail and sometimes cognitively impaired. Under the GDPR this is special-category data (Art.~9(1)), and automated decisions based on it are restricted further (Art.~22(4)): they may rest only on explicit consent or substantial public interest, with suitable safeguards. A data protection impact assessment is required where processing is likely to result in high risk (Art.~35), which continuous monitoring of vulnerable people plainly is. Three features make consent difficult. Consent must be freely given, and recital~43 warns that it is not where there is a clear imbalance between the parties; an older adult whose place in a care home or whose family's willingness to let them live alone depends on accepting monitoring is not in a position of free choice. Consent must be specific and informed, and a person cannot be informed about reasoning that the system cannot faithfully report. And consent must be revocable, which in a shared home means that the choice of one resident should not expose the others.
+
+The faithfulness protocol helps with the second point, concretely. A consent notice that promises ``you will be told why the system raised an alert'' is only truthful if the explanation is a reliable guide. A deployer who has measured $F$ can say what the explanation is: faithful to the degree that this score shows. A deployer who has not measured it is promising something it cannot know. Data minimisation (Art.~5(1)(c)) also points to sufficiency: if the cited events alone carry the conclusion, the system may not need to retain the rest.
+
+In Vietnam, the Law on Personal Data Protection (Law No.~91/2025/QH15), in force from 1 January 2026, and the preceding Decree 13/2023/ND-CP distinguish basic from sensitive personal data, rely on consent as the primary legal basis, and require impact assessments; health information is within the sensitive category under the framework that preceded the Law \cite{vn_pdpl}. Vietnamese law on older persons recognises the rights and care of the elderly (Law on the Elderly, No.~39/2009/QH12) without addressing AI monitoring. The practical position is therefore close to the EU one: explicit and informed consent, an assessment before deployment, and special care where the person cannot readily refuse.
+
+\subsection{Allocating responsibility}
+In the EU, the AI Act distributes obligations by role. A system that dispatches or prioritises emergency first-response services, including medical aid, is listed as high-risk in Annex III (point 5(d)); an AAL monitor that is marketed for a medical purpose may in addition be a medical device under Regulation (EU) 2017/745 and so fall into the high-risk category through Art.~6(1). Providers must provide documentation, accuracy and robustness testing, and instructions for human oversight (Arts.~9, 13--15). Deployers must use the system according to the instructions, assign oversight to people with the necessary competence and authority, monitor operation, keep logs, and report serious incidents (Art.~26) \cite{aiact}. The oversight that Art.~14 requires includes being able to ``correctly interpret the output'' and to remain aware of automation bias, both of which depend on explanations that mean what they say. The date on which these obligations start to apply was postponed for stand-alone high-risk systems by the Digital Omnibus amendment, reported to take effect from 2 December 2027, with later dates for products under sectoral law; the dates should be checked against the Official Journal when planning a deployment \cite{omnibus}.
+
+For compensation, the picture is changing. The revised Product Liability Directive (EU) 2024/2853 brings software, including AI systems, within the definition of a product and provides for strict liability for defects, disclosure of evidence and rebuttable presumptions of defectiveness in some cases, and Member States must transpose it by 9 December 2026 \cite{pld}. The proposed AI Liability Directive has been withdrawn. This matters for faithfulness. A claimant harmed by a missed fall will find it hard to show why a model failed, and a provider who has run a protocol like ours holds exactly the kind of evidence that disclosure rules may reach. Deployers and caregivers remain exposed under national tort and professional-negligence law, and there the key question is whether it was reasonable to rely on the system's output given what was known about its reliability.
+
+In Vietnam, the Law on Artificial Intelligence (Law No.~134/2025/QH15), adopted in December 2025 and in force from 1 March 2026, adopts a risk-based approach with higher-risk systems subject to stronger obligations, and gives existing systems in sectors including health care a longer transition period (reported as 18 months, against 12 months for others); the detailed classification criteria and incident-reporting rules are being left to implementing decrees \cite{vn_ailaw}. Civil liability for harm outside a contract is governed by the Civil Code of 2015 (Arts.~584--585), whose general rule is liability for fault with an obligation to compensate in full. Whether the strict liability rule for sources of extreme danger (Art.~601) applies to software is doubtful and, to our knowledge, untested.
+
+\subsection{An allocation by who controls which failure}
+False alarms and missed events fall differently on the parties, and a useful allocation follows who can control each failure. \emph{Developers} control the model and its documentation: reported accuracy, calibration, and faithfulness as measured. A developer who ships an explanation feature without testing whether it is faithful is responsible for the consequences of presenting a possibly spurious account as reasoning. \emph{Deployers} (care providers, housing associations, operators) control the configuration, the thresholds, the escalation policy and the training of staff; they are responsible for deciding which actions the agent is allowed to take, which is the subject of the next section. \emph{Caregivers} control the moment of action: they decide whether to act on an alert. Their responsibility should be bounded by what they could reasonably know. A caregiver told that the explanation is an unverified narrative has been given an accurate picture; one who is shown the same text as a reason has not.
+
+\section{A graduated authority ladder for agent actions}
+\label{sec:ladder}
+
+The ladder gives the measured evidence a decision role. It has four levels, ordered by the harm of a wrong action and by how hard it is to undo.
+
+\begin{center}
+\small
+\begin{tabular}{@{}cp{4.4cm}p{6.4cm}@{}}
+\toprule
+Level & Permitted action & Conditions \\
+\midrule
+0 & Log only & Always allowed. Required if the answer rate is below 95\% or the noise floor exceeds 10\%. \\
+1 & Notify a caregiver, showing the cited evidence; the explanation is labelled unverified & Lower accuracy bound $\ge 0.80$. \\
+2 & Reversible automated action (prompt the resident, adjust lighting) & Lower accuracy bound $\ge 0.90$ and lower bound of $F$ above zero. \\
+3 & \emph{Propose} an irreversible or high-harm action (emergency call, medication change) & Lower accuracy bound $\ge 0.95$ and lower bound of $F\ge 0.5\,F_{\mathrm{ref}}$. A human always confirms. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Four design choices deserve comment. The conditions use lower confidence bounds, so that a small evaluation cannot buy authority. They are cumulative, so that no explanation score can compensate for poor accuracy and no accuracy can compensate for an explanation that does not track the evidence. The faithfulness threshold is relative to $F_{\mathrm{ref}}$, the score of a reference agent that is faithful by construction on the same data, because $F$ has no absolute scale (Section~\ref{sec:reference}). Level 3 grants the right to propose, never to execute: no value of any measured quantity unlocks autonomous irreversible action, which keeps a person in the loop where the law expects one (GDPR Art.~22(3), AI Act Art.~14). The thresholds are policy parameters, not findings, and a deployer should set them with the clinical consequences of each action in view. The code applies the ladder to any set of protocol results (\texttt{faithaal/ladder.py}).
+
+Applied to the reference agents in Table~\ref{tab:ref}, with $F_{\mathrm{ref}}=\FFaith$, the ladder gives the following. All three agents have the same accuracy lower bound, 0.925, which clears the level-1 and level-2 accuracy conditions but not the 0.95 needed for level 3, so none may propose irreversible actions. The faithful and the positional agents both reach level 2, because the lower bounds of their $F$ intervals are above zero. The random agent is held at level 1 because its interval contains zero. The result is partly reassuring and partly a warning. It shows the ladder withholding authority from an agent whose explanations are unrelated to its decisions even though its accuracy is the same as the others'. It also shows that the level-2 condition, $F$ above zero, is too lax to separate the faithful agent from the positional one, whose score is small but positive. A stricter relative threshold at level 2 would separate them; we have not adopted one because choosing it after seeing these numbers would be tuning the policy to the example, and the thresholds are for each deployer to set. This is an illustration of the mechanism on a simple classifier in a scripted setting. It does not show that any agent is safe to deploy.
+
+\section{Limitations and open research directions}
+\label{sec:limits}
+
+\paragraph{Sensitivity is necessary, not sufficient.} A positive $F$ shows that the cited events matter to the conclusion. It does not show that the conclusion is right for the right reasons: an agent may cite the correct sensor and use it through a spurious rule. Faithfulness to a wrong mechanism is still faithfulness. A high $F$ should lower our worry about confabulation and leave our worry about unsound reasoning where it was.
+
+\paragraph{Redundancy limits power.} When the evidence is redundant, removing the cited events does not change the answer even if the explanation is faithful, so $F$ understates faithfulness for such agents. Calibrating against a reference agent mitigates this but does not remove it. Finer measures, such as changes in label probabilities, are unavailable for models that expose only text.
+
+\paragraph{Intervention realism.} Interventions can produce logs that never occur in a home. Inverting a reading or deleting an event may yield physically impossible sequences, and an agent may then change its answer for the right reason: because the log has become incoherent. The matched control reduces this confound but cannot eliminate it. Interventions that preserve plausibility, for example by sampling replacements from a model of the home, are an open direction.
+
+\paragraph{Scope of the pilot.} The data are scripted, short, single-resident and recorded in one apartment. Free-living data are longer, noisier and involve visitors and pets, which affects both accuracy and the meaning of an intervention. The reference agents are not language models, and the validity check says that the protocol can tell citing rules apart, not how language models behave. The language-model study described in Section~\ref{sec:llm} has not yet been run.
+
+\paragraph{Legal scope.} The legal analysis is a research synthesis. Regulations are moving: dates under the AI Act have recently shifted, the Vietnamese implementing decrees are incomplete, and case law on explanation duties is young. Vietnamese material needs verification by local counsel. The ladder's thresholds are policy choices that must be made for each deployment.
+
+\paragraph{Open directions.} We see four: testing faithfulness under realistic, plausibility-preserving interventions; extending the protocol from single-recording classification to day-long streams where an agent acts on partial evidence; studying how caregivers actually use explanations, since the benefit of faithfulness depends on human behaviour that we have not measured; and establishing, with clinicians and regulators, which thresholds are acceptable for which actions.
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

@@ -218,3 +218,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# build and run artefacts
+chapter/*.aux
+chapter/*.log
+chapter/*.out
+chapter/*.bbl
+chapter/*.blg
+results/cache.sqlite
+__pycache__/
+.pytest_cache/
