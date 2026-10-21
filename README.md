@@ -50,4 +50,8 @@ python make_artifacts.py
 - Explain-only (a classifier decides, a language model explains): `run_explain.py` stores the cited events in
   `results/explain/`; `analyze_explain.py --task adl|home ...` scores them against the classifier and assigns ladder
   levels (`results/explain_summary_*.csv`). `make_artifacts2.py` builds the chapter tables and figure.
+- Larger free-living set (`data/home_segments_large.jsonl`, 600 segments from 77 homes): explain-only on all 600
+  (`results/explain_large/`, `results/explain_summary_home_large.csv`), full protocol on a balanced 240-segment subset
+  with the plain prompt (`results/home_large/`, `results/home_large_summary.csv`). These supersede the 120-segment pilot
+  in `results/home/` and `results/explain/`, which is kept for reference.
 - The free Laguna model stalled on rate limits in both experiments and is excluded.

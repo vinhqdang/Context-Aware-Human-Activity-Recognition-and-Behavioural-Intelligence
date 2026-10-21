@@ -27,11 +27,11 @@ acc = pd.read_csv(res / "decision_accuracy.csv").set_index("task")
 macros: dict[str, str] = {}
 
 # ---- free-living protocol results (language model decides)
-h = pd.read_csv(res / "home_summary.csv")
-f_ref_home = pd.read_csv(res / "reference_home.csv").set_index("model").loc["reference-faithful", "F"]
+h = pd.read_csv(res / "home_large_summary.csv")
+f_ref_home = pd.read_csv(res / "reference_home_large.csv").set_index("model").loc["reference-faithful", "F"]
 with open(tab / "home_llm.tex", "w") as fh:
     fh.write("\\begin{tabular}{llcccccc}\n\\toprule\nAgent & Prompt & Accuracy [95\\% CI] & $F$ [95\\% CI] & $S$ & Noise & Level \\\\\n\\midrule\n")
-    a = acc.loc["home"]
+    a = acc.loc["home240"]
     fh.write(f"logistic regression & -- & {a.accuracy:.2f} [{a.lo:.2f}, {a.hi:.2f}] & -- & -- & -- & -- \\\\\n")
     for _, r in h.sort_values(["model", "variant"]).iterrows():
         lv = authority(r.accuracy_lo, r.F_lo, r.noise, r.parse_rate, f_ref_home)
@@ -41,17 +41,19 @@ with open(tab / "home_llm.tex", "w") as fh:
         macros[f"{key}F"] = f"{r.F:.3f}"
         macros[f"{key}FLo"], macros[f"{key}FHi"] = f"{r.F_lo:.3f}", f"{r.F_hi:.3f}"
     fh.write("\\bottomrule\n\\end{tabular}\n")
-macros["HomeRefAcc"] = f"{100 * acc.loc['home'].accuracy:.1f}"
-macros["HomeRefAccLo"], macros["HomeRefAccHi"] = f"{100 * acc.loc['home'].lo:.1f}", f"{100 * acc.loc['home'].hi:.1f}"
+macros["HomeRefAcc"] = f"{100 * acc.loc['home240'].accuracy:.1f}"
+macros["HomeRefAccLo"], macros["HomeRefAccHi"] = f"{100 * acc.loc['home240'].lo:.1f}", f"{100 * acc.loc['home240'].hi:.1f}"
+macros["HomeAllAcc"] = f"{100 * acc.loc['home'].accuracy:.1f}"
 macros["HomeRefF"] = f"{f_ref_home:.3f}"
 macros["HomeMaxAccLo"] = f"{h.accuracy_lo.max():.2f}"
 
 # ---- explain-only tables and ladder levels
 panels = {}
+EXPL = {"adl": "explain_summary_adl.csv", "home": "explain_summary_home_large.csv"}
 with open(tab / "explain.tex", "w") as fh:
     fh.write("\\begin{tabular}{lllcccc}\n\\toprule\nExplainer & Prompt & Gap [95\\% CI] & Precision & Chance & Level A & Level B \\\\\n\\midrule\n")
     for task, title in (("adl", "Scripted ADL (decision accuracy {:.1f}\\%)"), ("home", "Free-living segments (decision accuracy {:.1f}\\%)")):
-        s = pd.read_csv(res / f"explain_summary_{task}.csv")
+        s = pd.read_csv(res / EXPL[task])
         panels[task] = s
         fh.write(f"\\multicolumn{{7}}{{l}}{{\\emph{{{title.format(100 * acc.loc[task].accuracy)}}}}} \\\\\n")
         s["order"] = s.explainer.str.startswith("rule").map({True: 0, False: 1})
