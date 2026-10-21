@@ -231,3 +231,5 @@ __pycache__/
 results/llm/cache_*.sqlite
 results/home/cache_*.sqlite
 results/explain/cache_*.sqlite
+results/home_large/cache_*.sqlite
+results/explain_large/cache_*.sqlite

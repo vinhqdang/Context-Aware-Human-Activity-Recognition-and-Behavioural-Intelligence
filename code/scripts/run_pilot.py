@@ -31,8 +31,8 @@ MODELS = [
 
 
 def stratified_subset(recs, n):
-    """n recordings, balanced over the five tasks and spread evenly over participants."""
-    per = max(1, n // 5)
+    """n recordings, balanced over the activities and spread evenly over participants."""
+    per = max(1, n // len({r.label for r in recs}))
     out = []
     for t, label in enumerate(sorted({r.label for r in recs})):
         grp = [r for r in recs if r.label == label]

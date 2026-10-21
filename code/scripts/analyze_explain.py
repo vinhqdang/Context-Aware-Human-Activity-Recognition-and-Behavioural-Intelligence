@@ -22,6 +22,7 @@ ap.add_argument("--task", required=True, choices=["adl", "home"])
 ap.add_argument("--data", required=True)
 ap.add_argument("--explanations", nargs="*", default=[])
 ap.add_argument("--out", required=True)
+ap.add_argument("--name", default=None, help="output name (default: the task)")
 ap.add_argument("--min-valid", type=float, default=0.5, help="drop explainers with a lower share of usable explanations")
 a = ap.parse_args()
 
@@ -49,7 +50,7 @@ for f in a.explanations:
                     ok += 1
         valid_share[key] = ok / len(sub)
 df = pd.DataFrame(rows)
-df.to_csv(Path(a.out) / f"explain_per_recording_{a.task}.csv", index=False)
+df.to_csv(Path(a.out) / f"explain_per_recording_{a.name or a.task}.csv", index=False)
 
 acc = np.array([x.correct for x in df[df.explainer == "rule-faithful"].itertuples()], dtype=float)
 parts = df[df.explainer == "rule-faithful"].participant.values
@@ -78,7 +79,7 @@ pol_b = Policy(f_lo_rel_min={1: 0.0, 2: 0.25, 3: 0.5})
 res["decision_accuracy"], res["decision_accuracy_lo"], res["F_ref"] = acc_m, acc_lo, f_ref
 res["level_policy_A"] = [authority(acc_lo, r.gap_lo, 0.0, r.valid_share, f_ref, pol_a) for r in res.itertuples()]
 res["level_policy_B"] = [authority(acc_lo, r.gap_lo, 0.0, r.valid_share, f_ref, pol_b) for r in res.itertuples()]
-res.to_csv(Path(a.out) / f"explain_summary_{a.task}.csv", index=False)
+res.to_csv(Path(a.out) / f"explain_summary_{a.name or a.task}.csv", index=False)
 pd.set_option("display.width", 250, "display.max_columns", 40)
 print(f"task={a.task} decision accuracy {acc_m:.3f} (95% CI {acc_lo:.3f}-{acc_hi:.3f}), F_ref(gap)={f_ref:.3f}")
 print(res[["explainer", "variant", "n", "valid_share", "gap", "gap_lo", "gap_hi", "precision", "precision_chance", "suff",
