@@ -1,7 +1,7 @@
 """Run the counterfactual faithfulness pilot on the CASAS scripted-ADL recordings.
 
 Usage: python run_pilot.py --data DATA_DIR --out RESULTS_DIR [--models m1,m2] [--variants plain,enriched] [--limit N]
-Requires OPENROUTER_API_KEY. Responses are cached, so interrupted runs resume.
+Models are "provider:model"; keys come from the FAITHAAL_*_KEY variables listed in faithaal/llm.py. Responses are cached, so interrupted runs resume.
 """
 from __future__ import annotations
 
@@ -19,12 +19,25 @@ from faithaal.prompts import MAX_EVIDENCE, build_messages  # noqa: E402
 from faithaal.protocol import run_protocol  # noqa: E402
 
 MODELS = [
-    "meta-llama/llama-3.1-8b-instruct",
-    "meta-llama/llama-3.3-70b-instruct",
-    "deepseek/deepseek-v4.1-flash",
-    "openai/gpt-4o-mini",
-    "google/gemini-3.7-flash",
+    "openrouter:openai/gpt-6-luna",
+    "openrouter:deepseek/deepseek-v4.1-flash-1017",
+    "groq:openai/gpt-oss-20b",
+    "groq:openai/gpt-oss-120b",
+    "groq:qwen/qwen3.8-27b",
+    "mistral:ministral-8b-2512",
+    "gemini:gemini-3.8-flash",
 ]
+
+
+def stratified_subset(recs, n):
+    """n recordings, balanced over the five tasks and spread evenly over participants."""
+    per = max(1, n // 5)
+    out = []
+    for t, label in enumerate(sorted({r.label for r in recs})):
+        grp = [r for r in recs if r.label == label]
+        step = len(grp) / per
+        out += [grp[(int(i * step) + t) % len(grp)] for i in range(per)]
+    return out
 
 
 def parse(text: str, n_events: int):
@@ -59,14 +72,15 @@ def main():
     ap.add_argument("--variants", default="plain,enriched")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--workers", type=int, default=12)
+    ap.add_argument("--tag", default="run")
     a = ap.parse_args()
 
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     recs = load_recordings(a.data)
     if a.limit:
-        recs = recs[:: max(1, len(recs) // a.limit)][: a.limit]
-    client = Client(str(out / "cache.sqlite"))
+        recs = stratified_subset(recs, a.limit)
+    client = Client(str(out / f"cache_{a.tag}.sqlite"))
     rows = []
 
     def make_ask(model, variant):
@@ -80,7 +94,7 @@ def main():
         for variant in a.variants.split(","):
             rows += run_protocol(recs, make_ask(model, variant), {"model": model, "variant": variant}, a.workers)
             print(f"{model}/{variant}: done, running cost ${client.cost:.3f}", flush=True)
-            with open(out / "records.jsonl", "w") as fh:
+            with open(out / f"records_{a.tag}.jsonl", "w") as fh:
                 for row in rows:
                     fh.write(json.dumps(row) + "\n")
 

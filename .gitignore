@@ -225,6 +225,7 @@ chapter/*.log
 chapter/*.out
 chapter/*.bbl
 chapter/*.blg
-results/cache.sqlite
+results/cache*.sqlite
 __pycache__/
 .pytest_cache/
+results/llm/cache_*.sqlite

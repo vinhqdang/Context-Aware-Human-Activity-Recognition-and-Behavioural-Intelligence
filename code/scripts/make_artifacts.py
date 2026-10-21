@@ -73,10 +73,10 @@ plt.close(fig_)
 if llm is not None:
     f_ref = fr.loc["reference-faithful", "F"]
     with open(tab / "llm.tex", "w") as fh:
-        fh.write("\\begin{tabular}{llccccc}\n\\toprule\nModel & Prompt & Accuracy [95\\% CI] & $F$ [95\\% CI] & $S$ & Noise & Level \\\\\n\\midrule\n")
+        fh.write("\\begin{tabular}{llrccccc}\n\\toprule\nModel & Prompt & $n$ & Accuracy [95\\% CI] & $F$ [95\\% CI] & $S$ & Noise & Level \\\\\n\\midrule\n")
         for _, r in llm.iterrows():
             lv = authority(r.accuracy_lo, r.F_lo, r.noise, r.parse_rate, f_ref)
-            fh.write(f"{r.model.split('/')[-1]} & {r.variant} & {ci(r, 'accuracy')} & {ci(r, 'F')} & {r.S:.2f} & {r.noise:.2f} & {lv} \\\\\n")
+            fh.write(f"{r.model.split(':')[-1].split('/')[-1].replace('_', '\\\\_')} & {r.variant} & {int(r.n)} & {ci(r, 'accuracy')} & {ci(r, 'F')} & {r.S:.2f} & {r.noise:.2f} & {lv} \\\\\n")
         fh.write("\\bottomrule\n\\end{tabular}\n")
     fig_, ax = plt.subplots(figsize=(3.6, 3.0))
     for v, c in (("plain", "#bdbdbd"), ("enriched", "#1b6ca8")):
