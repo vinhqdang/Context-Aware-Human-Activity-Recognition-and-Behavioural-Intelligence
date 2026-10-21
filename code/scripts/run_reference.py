@@ -16,6 +16,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--data", required=True)
 ap.add_argument("--out", required=True)
 ap.add_argument("--task", default="adl", choices=["adl", "home"])
+ap.add_argument("--name", default=None, help="output suffix, e.g. home_large")
 a = ap.parse_args()
 recs = load_recordings(a.data) if a.task == "adl" else load_home(a.data)
 rows = []
@@ -25,6 +26,6 @@ for style in ("faithful", "positional", "random"):
                          {"model": f"reference-{style}", "variant": "linear", "task": a.task}, workers=1)
     print(style, "done", flush=True)
 Path(a.out).mkdir(parents=True, exist_ok=True)
-with open(Path(a.out) / ("records_reference.jsonl" if a.task == "adl" else "records_reference_home.jsonl"), "w") as fh:
+with open(Path(a.out) / (f"records_reference_{a.name}.jsonl" if a.name else "records_reference.jsonl" if a.task == "adl" else "records_reference_home.jsonl"), "w") as fh:
     for row in rows:
         fh.write(json.dumps(row) + "\n")
